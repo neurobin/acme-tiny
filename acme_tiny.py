@@ -8,7 +8,7 @@ except ImportError:
 #DEFAULT_CA = "https://acme-staging.api.letsencrypt.org"
 DEFAULT_CA = "https://acme-v01.api.letsencrypt.org"
 VERSION = "0.0.1"
-VERSION_INFO="letsacme_tiny version: "+VERSION
+VERSION_INFO="acme_tiny version: "+VERSION
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.addHandler(logging.StreamHandler())
@@ -71,7 +71,6 @@ def get_crt(account_key, csr, acme_dir, log=LOGGER, CA=DEFAULT_CA):
             return getattr(e, "code", None), getattr(e, "read", e.__str__), getattr(e, "info", None)()
     
     crt_info = set([])
-
     # find domains
     log.info("Parsing CSR...")
     proc = subprocess.Popen(["openssl", "req", "-in", csr, "-noout", "-text"],
@@ -172,7 +171,6 @@ def get_crt(account_key, csr, acme_dir, log=LOGGER, CA=DEFAULT_CA):
         raise ValueError("Error signing certificate: {0} {1}".format(code, result))
 
     chain_url = re.match("\\s*<([^>]+)>;rel=\"up\"",crt_info['Link'])
-    
     # return signed certificate!
     log.info("Certificate signed!")
     return """-----BEGIN CERTIFICATE-----\n{0}\n-----END CERTIFICATE-----\n""".format(
