@@ -7,20 +7,11 @@ except ImportError:
 
 #DEFAULT_CA = "https://acme-staging.api.letsencrypt.org"
 DEFAULT_CA = "https://acme-v01.api.letsencrypt.org"
-VERSION = "0.0.1"
-VERSION_INFO="acme_tiny version: "+VERSION
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.addHandler(logging.StreamHandler())
 LOGGER.setLevel(logging.INFO)
 
-def get_chain(url,log):
-    resp = urlopen(url)
-    if(resp.getcode() != 200):
-        log.error("E: Failed to fetch chain (CABUNDLE) from: "+url);sys.exit(1)
-    return """-----BEGIN CERTIFICATE-----\n{0}\n-----END CERTIFICATE-----\n""".format(
-        "\n".join(textwrap.wrap(base64.b64encode(resp.read()).decode('utf8'), 64)))
-        
 def get_crt(account_key, csr, acme_dir, log=LOGGER, CA=DEFAULT_CA):
     # helper function base64 encode for jose spec
     def _b64(b):
@@ -68,9 +59,8 @@ def get_crt(account_key, csr, acme_dir, log=LOGGER, CA=DEFAULT_CA):
             resp = urlopen(url, data.encode('utf8'))
             return resp.getcode(), resp.read()
         except IOError as e:
-            return getattr(e, "code", None), getattr(e, "read", e.__str__), getattr(e, "info", None)()
-    
-    crt_info = set([])
+            return getattr(e, "code", None), getattr(e, "read", e.__str__)()
+
     # find domains
     log.info("Parsing CSR...")
     proc = subprocess.Popen(["openssl", "req", "-in", csr, "-noout", "-text"],
@@ -90,7 +80,7 @@ def get_crt(account_key, csr, acme_dir, log=LOGGER, CA=DEFAULT_CA):
 
     # get the certificate domains and expiration
     log.info("Registering account...")
-    code, result, crt_info = _send_signed_request(CA + "/acme/new-reg", {
+    code, result = _send_signed_request(CA + "/acme/new-reg", {
         "resource": "new-reg",
         "agreement": "https://letsencrypt.org/documents/LE-SA-v1.0.1-July-27-2015.pdf",
     })
@@ -106,7 +96,7 @@ def get_crt(account_key, csr, acme_dir, log=LOGGER, CA=DEFAULT_CA):
         log.info("Verifying {0}...".format(domain))
 
         # get new challenge
-        code, result, crt_info = _send_signed_request(CA + "/acme/new-authz", {
+        code, result = _send_signed_request(CA + "/acme/new-authz", {
             "resource": "new-authz",
             "identifier": {"type": "dns", "value": domain},
         })
@@ -133,7 +123,7 @@ def get_crt(account_key, csr, acme_dir, log=LOGGER, CA=DEFAULT_CA):
                 wellknown_path, wellknown_url))
 
         # notify challenge are met
-        code, result, crt_info = _send_signed_request(challenge['uri'], {
+        code, result = _send_signed_request(challenge['uri'], {
             "resource": "challenge",
             "keyAuthorization": keyauthorization,
         })
@@ -163,18 +153,17 @@ def get_crt(account_key, csr, acme_dir, log=LOGGER, CA=DEFAULT_CA):
     proc = subprocess.Popen(["openssl", "req", "-in", csr, "-outform", "DER"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     csr_der, err = proc.communicate()
-    code, result, crt_info = _send_signed_request(CA + "/acme/new-cert", {
+    code, result = _send_signed_request(CA + "/acme/new-cert", {
         "resource": "new-cert",
         "csr": _b64(csr_der),
     })
     if code != 201:
         raise ValueError("Error signing certificate: {0} {1}".format(code, result))
 
-    chain_url = re.match("\\s*<([^>]+)>;rel=\"up\"",crt_info['Link'])
     # return signed certificate!
     log.info("Certificate signed!")
     return """-----BEGIN CERTIFICATE-----\n{0}\n-----END CERTIFICATE-----\n""".format(
-        "\n".join(textwrap.wrap(base64.b64encode(result).decode('utf8'), 64))), chain_url.group(1)
+        "\n".join(textwrap.wrap(base64.b64encode(result).decode('utf8'), 64)))
 
 def main(argv):
     parser = argparse.ArgumentParser(
@@ -188,6 +177,10 @@ def main(argv):
             ===Example Usage===
             python acme_tiny.py --account-key ./account.key --csr ./domain.csr --acme-dir /usr/share/nginx/html/.well-known/acme-challenge/ > signed.crt
             ===================
+
+            ===Example Crontab Renewal (once per month)===
+            0 0 1 * * python /path/to/acme_tiny.py --account-key /path/to/account.key --csr /path/to/domain.csr --acme-dir /usr/share/nginx/html/.well-known/acme-challenge/ > /path/to/signed.crt 2>> /var/log/acme_tiny.log
+            ==============================================
             """)
     )
     parser.add_argument("--account-key", required=True, help="path to your Let's Encrypt account private key")
@@ -195,21 +188,11 @@ def main(argv):
     parser.add_argument("--acme-dir", required=True, help="path to the .well-known/acme-challenge/ directory")
     parser.add_argument("--quiet", action="store_const", const=logging.ERROR, help="suppress output except for errors")
     parser.add_argument("--ca", default=DEFAULT_CA, help="certificate authority, default is Let's Encrypt")
-    parser.add_argument("--cert-file", default="", help="File to write the certificate to. Overwrites if file exists.")
-    parser.add_argument("--chain-file", default="", help="File to write the certificate to. Overwrites if file exists.")
-    parser.add_argument("--full-chain",action="store_true", help="Print full chain on stdout.")
-    parser.add_argument("--version",action="version",version=VERSION_INFO, help="Show version info.")
 
     args = parser.parse_args(argv)
     LOGGER.setLevel(args.quiet or LOGGER.level)
-    signed_crt, chain_url = get_crt(args.account_key, args.csr, args.acme_dir, log=LOGGER, CA=args.ca)
-    if(args.cert_file):
-        with open(args.cert_file, "w") as f: f.write(signed_crt)
+    signed_crt = get_crt(args.account_key, args.csr, args.acme_dir, log=LOGGER, CA=args.ca)
     sys.stdout.write(signed_crt)
-    chain = get_chain(chain_url,log=LOGGER)
-    if(args.chain_file):
-        with open(args.chain_file, "w") as f: f.write(chain)
-    if(args.full_chain): sys.stdout.write(chain)
 
 if __name__ == "__main__": # pragma: no cover
     main(sys.argv[1:])
