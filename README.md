@@ -1,7 +1,6 @@
 # acme-tiny
 
 [![Build Status](https://travis-ci.org/neurobin/acme-tiny.svg)](https://travis-ci.org/neurobin/acme-tiny)
-[![Coverage Status](https://coveralls.io/repos/neurobin/acme-tiny/badge.svg?branch=master&service=github)](https://coveralls.io/github/neurobin/acme-tiny?branch=master)
 
 This is a tiny, auditable script that you can throw on your server to issue
 and renew [Let's Encrypt](https://letsencrypt.org/) certificates. Since it has
